@@ -11,9 +11,6 @@ def read_root():
 def hello():
     return {"Hello": 'Lee'}
 
-@app.get("/hello2")
-def hello2():
-    return {"Hello": 'Daeseong'}
 
 
 @app.get("/items/{item_id}")
