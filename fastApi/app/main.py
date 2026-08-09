@@ -59,6 +59,10 @@ async def upload_file(file: UploadFile = File(...)):
         file_size = len(contents)
         data_stream = io.BytesIO(contents)
 
+        content_type = file.content_type
+        if content_type == "text/plain":
+            content_type = "text/plain; charset=utf-8"
+
         # MinIO에 파일 업로드 (put_object)
         minio_client.put_object(
             bucket_name=BUCKET_NAME,
@@ -106,7 +110,10 @@ def get_presigned_url(filename: str):
         url = minio_client.presigned_get_object(
             bucket_name=BUCKET_NAME,
             object_name=filename,
-            expires=timedelta(hours=1)
+            expires=timedelta(hours=1),
+            response_headers={
+                "response-content-type": "text/plain; charset=utf-8"
+            }
         )
 
         return {"url": url}
