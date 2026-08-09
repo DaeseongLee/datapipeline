@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import StreamingResponse
 from minio import Minio
@@ -7,13 +8,10 @@ import io
 
 app = FastAPI(title="FastAPI MinIO Integration")
 
-# 1. MinIO 클라이언트 설정
-# (실무에서는 os.getenv() 등을 사용하여 환경변수로 관리하는 것이 좋습니다)
-MINIO_ENDPOINT = "minio:9000"  # MinIO 서버 주소 (http:// 제외)
-LOCALHOST_ENDPOINT = "localhost:9000"
-MINIO_ACCESS_KEY = "admin"     # Access Key
-MINIO_SECRET_KEY = "password1234"     # Secret Key
-BUCKET_NAME = "my-bucket"
+MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT")
+MINIO_ACCESS_KEY = os.getenv("MINIO_ROOT_USER")
+MINIO_SECRET_KEY = os.getenv("MINIO_ROOT_PASSWORD")
+BUCKET_NAME = os.getenv("MINIO_BUCKET_NAME")
 
 minio_client = Minio(
     endpoint=MINIO_ENDPOINT,
@@ -22,15 +20,6 @@ minio_client = Minio(
     secure=False  # HTTPS를 사용하는 경우 True로 변경
 )
 
-
-# 2) Presigned URL 생성전용 (브라우저 접근용 localhost:9000 서명 계산)
-# presigned_client = Minio(
-#     endpoint=LOCALHOST_ENDPOINT,
-#     access_key=MINIO_ACCESS_KEY,
-#     secret_key=MINIO_SECRET_KEY,
-#     region="us-east-1",
-#     secure=False
-# )
 
 @app.get("/health")
 def hello():

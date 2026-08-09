@@ -17,8 +17,10 @@ services:
       - "9000:9000"
       - "9001:9001"
     environment:
-     MINIO_ROOT_USER: "admin"
-     MINIO_ROOT_PASSWORD: "password1234"
+     MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+     MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+     MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+     MINIO_BUCKET_NAME: ${MINIO_BUCKET_NAME}
     command: server /data --console-address ":9001"
     volumes:
       - minio_data:/data
