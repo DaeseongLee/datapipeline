@@ -24,8 +24,8 @@ minio_client = Minio(
 # 2) Presigned URL 생성전용 (브라우저 접근용 localhost:9000 서명 계산)
 presigned_client = Minio(
     "localhost:9000",
-    access_key="minioadmin",
-    secret_key="minioadmin",
+    access_key="MINIO_ACCESS_KEY",
+    secret_key="MINIO_SECRET_KEY",
     secure=False
 )
 
