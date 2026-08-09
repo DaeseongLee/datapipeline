@@ -2,6 +2,7 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import StreamingResponse
 from minio import Minio
 from minio.error import S3Error
+from datetime import timedelta
 import io
 
 app = FastAPI(title="FastAPI MinIO Integration")
@@ -94,8 +95,10 @@ def get_presigned_url(filename: str):
         url = minio_client.presigned_get_object(
             bucket_name=BUCKET_NAME,
             object_name=filename,
-            expires=3600
+            expires=timedelta(hours=1)
         )
+        
+        url = url.replace("minio:9000", "localhost:9000")
         return {"url": url}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
