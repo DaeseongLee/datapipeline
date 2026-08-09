@@ -18,11 +18,6 @@ services:
     ports:
       - "9000:9000"
       - "9001:9001"
-    environment:
-     MINIO_ENDPOINT: ${MINIO_ENDPOINT}
-     MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-     MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
-     MINIO_BUCKET_NAME: ${MINIO_BUCKET_NAME}
     env_file:
       - .env
     command: server /data --console-address ":9001"
