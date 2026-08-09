@@ -21,6 +21,14 @@ minio_client = Minio(
     secure=False  # HTTPS를 사용하는 경우 True로 변경
 )
 
+# 2) Presigned URL 생성전용 (브라우저 접근용 localhost:9000 서명 계산)
+presigned_client = Minio(
+    "localhost:9000",
+    access_key="minioadmin",
+    secret_key="minioadmin",
+    secure=False
+)
+
 @app.get("/health")
 def hello():
     return {"health": 'OK'}
@@ -92,13 +100,12 @@ def download_file(filename: str):
 def get_presigned_url(filename: str):
     try:
         # 1시간(3600초) 동안 유효한 Presigned URL 생성
-        url = minio_client.presigned_get_object(
+        url = presigned_client.presigned_get_object(
             bucket_name=BUCKET_NAME,
             object_name=filename,
             expires=timedelta(hours=1)
         )
-        
-        url = url.replace("minio:9000", "localhost:9000")
+
         return {"url": url}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
