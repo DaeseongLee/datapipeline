@@ -8,7 +8,7 @@ app = FastAPI(title="FastAPI MinIO Integration")
 
 # 1. MinIO 클라이언트 설정
 # (실무에서는 os.getenv() 등을 사용하여 환경변수로 관리하는 것이 좋습니다)
-MINIO_ENDPOINT = "localhost:9000"  # MinIO 서버 주소 (http:// 제외)
+MINIO_ENDPOINT = "minio:9000"  # MinIO 서버 주소 (http:// 제외)
 MINIO_ACCESS_KEY = "minioadmin"     # Access Key
 MINIO_SECRET_KEY = "minioadmin"     # Secret Key
 BUCKET_NAME = "my-bucket"
