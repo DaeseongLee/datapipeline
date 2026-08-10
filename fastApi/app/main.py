@@ -1,17 +1,21 @@
 import os
 from fastapi import FastAPI, UploadFile, File, HTTPException
+
 from fastapi.responses import StreamingResponse
 from minio import Minio
 from minio.error import S3Error
+
+from pyspark.sql import SparkSession
+from contextlib import asynccontextmanager
+
 from datetime import timedelta
 import io
-
-app = FastAPI(title="FastAPI MinIO Integration")
 
 MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT")
 MINIO_ACCESS_KEY = os.getenv("MINIO_ROOT_USER")
 MINIO_SECRET_KEY = os.getenv("MINIO_ROOT_PASSWORD")
 BUCKET_NAME = os.getenv("MINIO_BUCKET_NAME")
+SPARK_MASTER_URL = os.getenv("SPARK_MASTER_URL")
 
 minio_client = Minio(
     endpoint=MINIO_ENDPOINT,
@@ -20,14 +24,12 @@ minio_client = Minio(
     secure=False  # HTTPS를 사용하는 경우 True로 변경
 )
 
+spark_session = None
 
-@app.get("/health")
-def hello():
-    return {"health": 'OK'}
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global spark_session
 
-# 2. 서버 시작 시 버킷 자동 생성 확인 (Startup Event)
-@app.on_event("startup")
-def startup_event():
     try:
         found = minio_client.bucket_exists(BUCKET_NAME)
         if not found:
@@ -38,6 +40,29 @@ def startup_event():
     except S3Error as e:
         print(f"Error connecting to MinIO: {e}")
 
+    try:
+        spark_session = SparkSession.builder \
+            .appName("FastAPI-Spark-Pipeline") \
+            .master(SPARK_MASTER_URL) \
+            .getOrCreate()
+        print(f"⚡ Connected to Spark Master: {SPARK_MASTER_URL}")
+    except Exception as e:
+        print(f"❌ Failed to connect Spark Master: {e}")
+
+    yield  # 앱 작동 중
+
+    # [3] 서버 종료 시 SparkSession 정리
+    if spark_session:
+        spark_session.stop()
+        print("🛑 Spark Session Stopped.")
+
+app = FastAPI(title="FastAPI MinIO & Spark Integration", lifespan=lifespan)
+
+
+# 2. fast-api health 체크
+@app.get("/health")
+def hello():
+    return {"health": 'OK'}
 
 # 3. 파일 업로드 API
 @app.post("/upload")
@@ -58,7 +83,7 @@ async def upload_file(file: UploadFile = File(...)):
             object_name=file.filename,
             data=data_stream,
             length=file_size,
-            content_type=file.content_type
+            content_type=content_type
         )
 
         return {
@@ -108,3 +133,21 @@ def get_presigned_url(filename: str):
         return {"url": url}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/spark-check")
+def check_spark():
+    if not spark_session:  # 👈 세션 연결 확인 예외 처리
+        raise HTTPException(status_code=503, detail="Spark session is not connected")
+    
+    # 간단한 분산 데이터 처리 테스트
+    data = [("FastAPI", 100), ("Spark", 200), ("MinIO", 300)]
+    df = spark_session.createDataFrame(data, ["Name", "Value"])
+    
+    total_count = df.count()
+    result = [row.asDict() for row in df.collect()]
+    
+    return {
+        "status": "success",
+        "total_rows": total_count,
+        "data": result
+    }
