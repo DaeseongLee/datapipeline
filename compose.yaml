@@ -3,11 +3,12 @@ services:
   fastapi-app:
     build: ./fastApi
     ports:
-      - "${APP_PORT}:5000"
+      - "${FASTAPI_APP_PORT}:${FASTAPI_APP_PORT}"
     volumes:
       - ./fastApi/app:/app
     depends_on:
       - minio
+      - spark-master
     networks:
       - pipeline-net
     env_file:
@@ -16,13 +17,38 @@ services:
   minio:
     image: minio/minio
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "${MINIO_APP_PORT}:${MINIO_APP_PORT}"
+      - "${MINIO_CONSOL_PORT}:${MINIO_CONSOL_PORT}"
     env_file:
       - .env
-    command: server /data --console-address ":9001"
+    command: server /data --console-address ":${MINIO_CONSOL_PORT}"
     volumes:
       - minio_data:/data
+    networks:
+      - pipeline-net
+  
+  spark-master:
+    image: bitnami/spark:3.5
+    container_name: spark-master
+    environment:
+      - SPARK_MODE=${SPARK_MASTER_MODE}
+    env_file:
+      - .env
+    ports:
+      - "${SPARK_MASTER_WEB_PORT}:${SPARK_MASTER_WEB_PORT}" # Spark Master Web UI
+      - "${SPARK_MASTER_RPC_PORT}:${SPARK_MASTER_RPC_PORT}" # Spark Master RPC Port
+    networks:
+      - pipeline-net
+
+  spark-worker:
+    image: bitnami/spark:3.5
+    container_name: spark-worker
+    environment:
+      - SPARK_MODE=${SPARK_WORKER_MODE}
+    env_file:
+      - .env
+    depends_on:
+      - spark-master
     networks:
       - pipeline-net
     
