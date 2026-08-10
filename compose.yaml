@@ -2,6 +2,7 @@
 services:
   fastapi-app:
     build: ./fastApi
+    container_name: fastapi-app
     ports:
       - "${FASTAPI_APP_PORT}:${FASTAPI_APP_PORT}"
     volumes:
@@ -16,6 +17,7 @@ services:
 
   minio:
     image: minio/minio
+    container_name: minio
     ports:
       - "${MINIO_APP_PORT}:${MINIO_APP_PORT}"
       - "${MINIO_CONSOL_PORT}:${MINIO_CONSOL_PORT}"
@@ -30,6 +32,7 @@ services:
   spark-master:
     image: apache/spark:3.5.0
     container_name: spark-master
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
     environment:
       - SPARK_MODE=${SPARK_MASTER_MODE}
     env_file:
@@ -43,6 +46,7 @@ services:
   spark-worker:
     image: apache/spark:3.5.0
     container_name: spark-worker
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
     environment:
       - SPARK_MODE=${SPARK_WORKER_MODE}
     env_file:
