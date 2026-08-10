@@ -28,7 +28,7 @@ services:
       - pipeline-net
   
   spark-master:
-    image: bitnami/spark:3.5.1
+    image: bitnami/spark:latest
     container_name: spark-master
     environment:
       - SPARK_MODE=${SPARK_MASTER_MODE}
@@ -41,7 +41,7 @@ services:
       - pipeline-net
 
   spark-worker:
-    image: bitnami/spark:3.5.1
+    image: bitnami/spark:latest
     container_name: spark-worker
     environment:
       - SPARK_MODE=${SPARK_WORKER_MODE}
