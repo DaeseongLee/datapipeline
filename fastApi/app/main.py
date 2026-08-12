@@ -47,6 +47,19 @@ def fetch_coupang_price(product: dict) -> dict:
     # 예시: HTTP 요청 (실제 환경에서는 셀레니움/플레이라이트 추천)
     response = requests.get(product["url"], headers=headers)
     soup = BeautifulSoup(response.text, "html.parser")
+
+
+    # 1. 실제 응답받은 HTML 일부 출력해보기 (처음 500자)
+    print("=== Received HTML Sample ===", flush=True)
+    print(response.text[:500], flush=True)
+
+    # 2. 'price'라는 단어가 들어간 태그가 하나라도 있는지 검색
+    price_tags = soup.find_all(class_=lambda x: x and 'price' in x)
+    print(f"=== Found {len(price_tags)} price-related tags ===", flush=True)
+    for tag in price_tags[:5]:
+        print(tag, flush=True)
+
+
     price_element = soup.select_one(".price-amount")
     if price_element:
         price_text = price_element.text.replace(",", "").replace("원", "")
