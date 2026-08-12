@@ -12,6 +12,8 @@ services:
       - spark-master
     networks:
       - pipeline-net
+    environment:
+      - TZ=Asia/Seoul
     env_file:
       - .env
 
