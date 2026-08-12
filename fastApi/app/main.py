@@ -47,12 +47,12 @@ def fetch_coupang_price(product: dict) -> dict:
     # 예시: HTTP 요청 (실제 환경에서는 셀레니움/플레이라이트 추천)
     response = requests.get(product["url"], headers=headers)
     soup = BeautifulSoup(response.text, "html.parser")
-    price_element = soup.select_one(".total-price > price-amount")
+    price_element = soup.select_one(".final-price > .price-amount")
     if price_element:
         price_text = price_element.text.replace(",", "").replace("원", "")
         price = int(price_text)
     else:
-        print("[경고] .final-price > price 태그를 찾지 못했습니다.")
+        print("[경고] .final-price > .price-amount 태그를 찾지 못했습니다.")
         price = 0
 
     # 테스트용 데이터 구조 예시
