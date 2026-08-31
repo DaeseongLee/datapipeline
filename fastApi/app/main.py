@@ -14,6 +14,7 @@ async def get_daily_price(
     product_cls_code: str = "02",  # 01: 소매, 02: 도매
     item_category_code: str = "100",  # 100: 식량작물, 200: 채소류 등
     country_code: str = "1101",  # 1101: 서울 (지역코드)
+    reg_day: str = "2026-08-28"  # 1101: 서울 (지역코드)
 ):
     """
     KAMIS 일자별 가격 정보를 조회하는 FastAPI 엔드포인트
@@ -27,7 +28,7 @@ async def get_daily_price(
         "p_product_cls_code": product_cls_code,
         "p_item_category_code": item_category_code,
         "p_country_code": country_code,
-        "p_regday": "2026-08-30",
+        "p_regday": reg_day,
         "p_convert_kg_yn": "N"
     }
 
