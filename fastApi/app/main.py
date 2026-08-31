@@ -5,7 +5,7 @@ import httpx
 app = FastAPI(title="KAMIS 연동 서비스")
 
 KAMIS_CERT_KEY = os.getenv("KAMIS_CERT_KEY")
-KAMIS_CERT_ID = os.getenv("KAMIS_CERT_KEY")
+KAMIS_CERT_ID = os.getenv("KAMIS_CERT_ID")
 KAMIS_BASE_URL = os.getenv("KAMIS_BASE_URL")  
 
 
@@ -20,6 +20,7 @@ async def get_daily_price(
     """
     # 1. KAMIS API에 전달할 필수/선택 파라미터 정의
     params = {
+        "action":"dailyPriceByCategoryList",
         "p_cert_key": KAMIS_CERT_KEY,
         "p_cert_id": KAMIS_CERT_ID,
         "p_returntype": "json",  # 반환 형식 (json 또는 xml)
