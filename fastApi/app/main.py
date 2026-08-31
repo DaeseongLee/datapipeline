@@ -32,8 +32,12 @@ async def get_daily_price(
         "p_convert_kg_yn": "N"
     }
 
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+
     # 2. httpx 비동기 클라이언트를 이용해 KAMIS 서버로 요청 보내기
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(headers=headers, follow_redirects=True) as client:
         try:
             response = await client.get(KAMIS_BASE_URL, params=params, timeout=10.0)
             
