@@ -1,130 +1,53 @@
 import os
-import io
-import json
-from datetime import datetime
-from typing import List
-from fastapi import FastAPI, BackgroundTasks, HTTPException
-import pandas as pd
-from minio import Minio
-import requests
-from bs4 import BeautifulSoup
+from fastapi import FastAPI, HTTPException
+import httpx
 
-app = FastAPI(title="Coupang Price Tracker Ingestion Engine")
+app = FastAPI(title="KAMIS 연동 서비스")
 
-MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT")
-MINIO_ACCESS_KEY = os.getenv("MINIO_ROOT_USER")
-MINIO_SECRET_KEY = os.getenv("MINIO_ROOT_PASSWORD")
-# BUCKET_NAME = os.getenv("MINIO_BUCKET_NAME")
-SPARK_MASTER_URL = os.getenv("SPARK_MASTER_URL")
+KAMIS_CERT_KEY = os.getenv("KAMIS_CERT_KEY")
+KAMIS_CERT_ID = os.getenv("KAMIS_CERT_KEY")
+KAMIS_BASE_URL = os.getenv("KAMIS_BASE_URL")  
 
-# 1. MinIO 클라이언트 설정
-minio_client = Minio(
-    endpoint=MINIO_ENDPOINT,
-    access_key=MINIO_ACCESS_KEY,
-    secret_key=MINIO_SECRET_KEY,
-    secure=False
-)
 
-BUCKET_NAME = "raw-coupang-prices"
-
-TARGET_PRODUCTS = [
-    {"id": "1271064981", "name": "달걀 30개", "url": "https://www.coupang.com/vp/products/1271064981?vendorItemId=70272921582"},
-    {"id": "6854321599", "name": "두부 800g", "url": "https://www.coupang.com/vp/products/6854321599?vendorItemId=83532120765"},
-    {"id": "1275124832", "name": "콩나물 500g", "url": "https://www.coupang.com/vp/products/1275124832?vendorItemId=70278175584"}
-]
-
-def fetch_coupang_price(product: dict) -> dict:
+@app.get("/api/prices/daily")
+async def get_daily_price(
+    product_cls_code: str = "02",  # 01: 소매, 02: 도매
+    item_category_code: str = "100",  # 100: 식량작물, 200: 채소류 등
+    country_code: str = "1101",  # 1101: 서울 (지역코드)
+):
     """
-    쿠팡 상품 페이지에서 가격 데이터를 수집하는 함수
-    (실제 구현 시 Playwright/Selenium 등을 활용하면 더 안정적입니다)
+    KAMIS 일자별 가격 정보를 조회하는 FastAPI 엔드포인트
     """
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7"
-    }
-    now = datetime.now()
-    
-    # 예시: HTTP 요청 (실제 환경에서는 셀레니움/플레이라이트 추천)
-    response = requests.get(product["url"], headers=headers)
-    soup = BeautifulSoup(response.text, "html.parser")
-
-
-    # 1. 실제 응답받은 HTML 일부 출력해보기 (처음 500자)
-    print("=== Received HTML Sample ===", flush=True)
-    print(response.text[:500], flush=True)
-
-    # 2. 'price'라는 단어가 들어간 태그가 하나라도 있는지 검색
-    price_tags = soup.find_all(class_=lambda x: x and 'price' in x)
-    print(f"=== Found {len(price_tags)} price-related tags ===", flush=True)
-    for tag in price_tags[:5]:
-        print(tag, flush=True)
-
-
-    price_element = soup.select_one(".price-amount")
-    if price_element:
-        price_text = price_element.text.replace(",", "").replace("원", "")
-        price = int(price_text)
-    else:
-        print("[경고] .price-amount 태그를 찾지 못했습니다.")
-        price = 0
-
-    # 테스트용 데이터 구조 예시
-    return {
-        "product_id": product["id"],
-        "product_name": product["name"],
-        "price": price,               # 수집된 현재가
-        "is_out_of_stock": False,      # 품절 여부
-        "collected_at": now.strftime("%Y-%m-%d %H:%M:%S"),
-        "date": now.strftime("%Y-%m-%d"),
-        "hour": now.strftime("%H")
+    # 1. KAMIS API에 전달할 필수/선택 파라미터 정의
+    params = {
+        "p_cert_key": KAMIS_CERT_KEY,
+        "p_cert_id": KAMIS_CERT_ID,
+        "p_returntype": "json",  # 반환 형식 (json 또는 xml)
+        "p_product_cls_code": product_cls_code,
+        "p_item_category_code": item_category_code,
+        "p_country_code": country_code,
+        "p_regday": "2026-08-30",
+        "p_convert_kg_yn": "N"
     }
 
-def process_and_upload_to_minio():
-    """관심 상품들의 가격을 수집하여 MinIO에 Parquet로 적재"""
-    collected_data = []
-    
-    for prod in TARGET_PRODUCTS:
+    # 2. httpx 비동기 클라이언트를 이용해 KAMIS 서버로 요청 보내기
+    async with httpx.AsyncClient() as client:
         try:
-            data = fetch_coupang_price(prod)
-            if data:
-                collected_data.append(data)
-        except Exception as e:
-            print(f"Error collecting {prod['name']}: {e}")
+            response = await client.get(KAMIS_BASE_URL, params=params, timeout=10.0)
+            
+            # 응답 상태 코드 확인
+            if response.status_code != 200:
+                raise HTTPException(
+                    status_code=response.status_code, 
+                    detail="KAMIS API 서버 응답 에러"
+                )
 
-    if not collected_data:
-        return
+            # JSON 변환
+            data = response.json()
+            return data
 
-    # Pandas DataFrame 변환
-    df = pd.DataFrame(collected_data)
-    
-    # Parquet 메모리 버퍼 생성
-    parquet_buffer = io.BytesIO()
-    df.to_parquet(parquet_buffer, index=False, engine="pyarrow")
-    parquet_buffer.seek(0)
-    
-    # MinIO 저장 경로 (년-월-일/시간 파티셔닝)
-    today_str = datetime.now().strftime("%Y-%m-%d")
-    hour_str = datetime.now().strftime("%H")
-    timestamp = int(datetime.now().timestamp())
-    
-    object_name = f"year_month_day={today_str}/hour={hour_str}/prices_{timestamp}.parquet"
-    
-    # MinIO 버킷 확인 및 생성
-    if not minio_client.bucket_exists(BUCKET_NAME):
-        minio_client.make_bucket(BUCKET_NAME)
-        
-    # MinIO 적재
-    minio_client.put_object(
-        bucket_name=BUCKET_NAME,
-        object_name=object_name,
-        data=parquet_buffer,
-        length=len(parquet_buffer.getvalue()),
-        content_type="application/octet-stream"
-    )
-    print(f"[MinIO Ingest Success] Path: {BUCKET_NAME}/{object_name}")
-
-@app.post("/trigger/collect")
-def trigger_collection(background_tasks: BackgroundTasks):
-    """주기적(예: APScheduler, Airflow) 또는 수동으로 수집을 실행하는 API"""
-    background_tasks.add_task(process_and_upload_to_minio)
-    return {"message": "Coupang price collection started in background."}
+        except httpx.RequestError as exc:
+            raise HTTPException(
+                status_code=500, 
+                detail=f"KAMIS API 호출 중 네트워크 에러 발생: {exc}"
+            )
