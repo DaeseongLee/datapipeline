@@ -1,30 +1,78 @@
 import os
+import io
+from datetime import datetime, timedelta
+from typing import Optional
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, HTTPException
 import httpx
+import pandas as pd
+from minio import Minio
+import anyio
 
-app = FastAPI(title="KAMIS 연동 서비스")
-
+# 환경변수 로드
 KAMIS_CERT_KEY = os.getenv("KAMIS_CERT_KEY")
 KAMIS_CERT_ID = os.getenv("KAMIS_CERT_ID")
 KAMIS_BASE_URL = os.getenv("KAMIS_BASE_URL")  
 
+MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT")
+MINIO_ACCESS_KEY = os.getenv("MINIO_ROOT_USER")
+MINIO_SECRET_KEY = os.getenv("MINIO_ROOT_PASSWORD")
+
+BUCKET_NAME = "daily-price-by-category"
+
+minio_client: Optional[Minio] = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """앱 시작 시 MinIO 클라이언트를 초기화하고 버킷을 미리 생성합니다."""
+    global minio_client
+    minio_client = Minio(
+        endpoint=MINIO_ENDPOINT,
+        access_key=MINIO_ACCESS_KEY,
+        secret_key=MINIO_SECRET_KEY,
+        secure=False
+    )
+    if not minio_client.bucket_exists(BUCKET_NAME):
+        minio_client.make_bucket(BUCKET_NAME)
+    yield
+
+
+app = FastAPI(title="KAMIS 연동 서비스", lifespan=lifespan)
+
+
+# 1. BytesIO 스트림 객체와 크기를 직접 받도록 수정
+def _upload_to_minio(object_name: str, buffer: io.BytesIO, buffer_size: int):
+    """MinIO 업로드를 수행하는 동기 헬퍼 함수 (스트림 기반)"""
+    minio_client.put_object(
+        bucket_name=BUCKET_NAME,
+        object_name=object_name,
+        data=buffer,            # BytesIO 스트림 전달
+        length=buffer_size,      # 데이터 바이트 크기
+        content_type="application/octet-stream"
+    )
+
 
 @app.get("/api/prices/daily")
 async def get_daily_price(
-    product_cls_code: str = "02",  # 01: 소매, 02: 도매
+    product_cls_code: str = "02",      # 01: 소매, 02: 도매
     item_category_code: str = "100",  # 100: 식량작물, 200: 채소류 등
-    country_code: str = "1101",  # 1101: 서울 (지역코드)
-    reg_day: str = "2026-08-28"  # 1101: 서울 (지역코드)
+    country_code: str = "1101",       # 1101: 서울 (지역코드)
+    reg_day: Optional[str] = None     # YYYY-MM-DD (미입력 시 어제)
 ):
     """
-    KAMIS 일자별 가격 정보를 조회하는 FastAPI 엔드포인트
+    KAMIS 일자별 가격 정보를 조회하여 MinIO에 Parquet으로 적재하는 엔드포인트
     """
-    # 1. KAMIS API에 전달할 필수/선택 파라미터 정의
+    if not reg_day:
+        yesterday = datetime.now() - timedelta(days=1)
+        reg_day = yesterday.strftime("%Y-%m-%d")
+
     params = {
-        "action":"dailyPriceByCategoryList",
+        "action": "dailyPriceByCategoryList",
         "p_cert_key": KAMIS_CERT_KEY,
         "p_cert_id": KAMIS_CERT_ID,
-        "p_returntype": "json",  # 반환 형식 (json 또는 xml)
+        "p_returntype": "json",
         "p_product_cls_code": product_cls_code,
         "p_item_category_code": item_category_code,
         "p_country_code": country_code,
@@ -36,21 +84,70 @@ async def get_daily_price(
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
 
-    # 2. httpx 비동기 클라이언트를 이용해 KAMIS 서버로 요청 보내기
+    now = datetime.now()
+    timestamp = int(now.timestamp())
+    object_name = f"reg_date={reg_day}/hour={now.strftime('%H')}/prices_{item_category_code}_{timestamp}.parquet"
+
     async with httpx.AsyncClient(headers=headers, follow_redirects=True) as client:
         try:
             response = await client.get(KAMIS_BASE_URL, params=params, timeout=10.0)
             
-            # 응답 상태 코드 확인
             if response.status_code != 200:
                 raise HTTPException(
                     status_code=response.status_code, 
                     detail="KAMIS API 서버 응답 에러"
                 )
 
-            # JSON 변환
-            data = response.json()
-            return data
+            response_body = response.json()
+
+            if not isinstance(response_body, dict):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"KAMIS API 응답 형식이 올바르지 않습니다: {response_body}"
+                )
+
+            data_field = response_body.get("data")
+            items = []
+
+            if isinstance(data_field, dict):
+                items = data_field.get("item", [])
+            elif isinstance(data_field, list) and len(data_field) > 0:
+                if isinstance(data_field[0], dict):
+                    items = data_field[0].get("item", [])
+
+            if not items:
+                return {
+                    "message": "조회된 데이터가 없거나 휴무일입니다.", 
+                    "reg_day": reg_day,
+                    "raw_response": response_body
+                }
+
+            # DataFrame 변환 및 Parquet 메모리 버퍼 생성
+            df = pd.DataFrame(items)
+            parquet_buffer = io.BytesIO()
+            df.to_parquet(parquet_buffer, index=False, engine="pyarrow")
+            
+            # 2. 바이트 크기 측정 후 포인터(커서)를 맨 앞으로 이동
+            buffer_size = parquet_buffer.tell()
+            parquet_buffer.seek(0)
+
+            # 3. parquet_bytes 대신 parquet_buffer와 buffer_size 전달
+            try:
+                await anyio.to_thread.run_sync(
+                    _upload_to_minio, object_name, parquet_buffer, buffer_size
+                )
+            except Exception as e:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"MinIO 저장 실패: {str(e)}"
+                )
+
+            return {
+                "status": "success",
+                "bucket": BUCKET_NAME,
+                "path": object_name,
+                "rows_ingested": len(df)
+            }
 
         except httpx.RequestError as exc:
             raise HTTPException(
