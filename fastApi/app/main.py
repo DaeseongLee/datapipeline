@@ -154,3 +154,38 @@ async def get_daily_price(
                 status_code=500, 
                 detail=f"KAMIS API 호출 중 네트워크 에러 발생: {exc}"
             )
+        
+def _read_parquet_from_minio(object_name: str) -> pd.DataFrame:
+    response = minio_client.get_object(BUCKET_NAME, object_name)
+    try:
+        data_bytes = response.read()
+        # 바이너리 Parquet 데이터를 Pandas DataFrame으로 로드
+        df = pd.read_parquet(io.BytesIO(data_bytes))
+        return df
+    finally:
+        response.close()
+        response.release_conn()
+
+
+@app.get("/api/prices/daily/minio")
+async def get_minio_object(object_name: str):
+    """
+    MinIO에 저장된 Parquet 파일 경로(object_name)를 받아 데이터를 조회하는 엔드포인트
+    예시 object_name: reg_date=2026-09-01/hour=18/prices_100_1725264000.parquet
+    """
+    try:
+        # 비동기 스레드 풀에서 MinIO 읽기 실행
+        df = await anyio.to_thread.run_sync(_read_parquet_from_minio, object_name)
+        
+        # DataFrame을 Dict/JSON 형태로 변환하여 반환
+        return {
+            "status": "success",
+            "object_name": object_name,
+            "total_count": len(df),
+            "data": df.to_dict(orient="records")
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"MinIO 데이터 읽기 실패: {str(e)}"
+        )
